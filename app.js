@@ -12,39 +12,42 @@ document.addEventListener('DOMContentLoaded', function() {
   const downloadLink = document.getElementById('downloadLink');
   const progressBar = document.getElementById('progressBar');
   const progressContainer = progressBar.parentElement;
+
+  // 调试元素
   const toggleDebug = document.getElementById('toggleDebug');
   const debugInfo = document.getElementById('debugInfo');
   
   let debugMode = false;
   
   // 调试模式切换
-  toggleDebug.addEventListener('click', function() {
-    debugMode = !debugMode;
-    debugInfo.style.display = debugMode ? 'block' : 'none';
-    toggleDebug.textContent = debugMode ? '隐藏调试信息' : '显示调试信息';
-  });
-  
-  // 添加调试信息
-  function addDebugInfo(message) {
-    if (debugMode) {
-      const time = new Date().toLocaleTimeString();
-      debugInfo.innerHTML += `[${time}] ${message}<br>`;
-      debugInfo.scrollTop = debugInfo.scrollHeight;
-    }
-    console.log(message);
+  if (toggleDebug) {
+    toggleDebug.addEventListener('click', function() {
+      debugMode = !debugMode;
+      if (debugInfo) {
+        debugInfo.style.display = debugMode ? 'block' : 'none';
+      }
+      toggleDebug.textContent = debugMode ? '隐藏调试信息' : '显示调试信息';
+      addDebugInfo('调试模式 ' + (debugMode ? '已开启' : '已关闭'));
+    });
   }
-  
-  // 清空调试信息
-  function clearDebugInfo() {
-    debugInfo.innerHTML = '';
-  }
+
+  // 中文数字转阿拉伯数字（扩展版）
+  const chineseToNum = {
+    '〇':0, '零':0, '一':1, '二':2, '三':3, '四':4, '五':5, '六':6, '七':7, '八':8, '九':9,
+    '十':10, '十一':11, '十二':12, '十三':13, '十四':14, '十五':15, '十六':16, '十七':17, '十八':18, '十九':19,
+    '二十':20, '廿':20, '二十一':21, '二十二':22, '二十三':23, '二十四':24, '二十五':25, '二十六':26, '二十七':27, '二十八':28, '二十九':29,
+    '三十':30, '卅':30, '三十一':31, '三十二':32, '三十三':33, '三十四':34, '三十五':35, '三十六':36, '三十七':37, '三十八':38, '三十九':39,
+    '四十':40, '卌':40, '五十':50, '六十':60, '七十':70, '八十':80, '九十':90,
+    '百':100, '千':1000, '万':10000,
+    '壹':1, '贰':2, '叁':3, '肆':4, '伍':5, '陆':6, '柒':7, '捌':8, '玖':9, '拾':10, '佰':100, '仟':1000
+  };
 
   // 生成EPUB核心逻辑
   generateBtn.addEventListener('click', async function() {
     try {
       clearDebugInfo();
       addDebugInfo('开始生成EPUB...');
-      
+
       // 表单验证
       if (!bookTitle.value.trim()) {
         alert('请输入书名！');
@@ -70,55 +73,93 @@ document.addEventListener('DOMContentLoaded', function() {
       progressBar.style.width = '0%';
 
       // 1. 读取TXT文件
+      progressBar.style.width = '10%';
       addDebugInfo('读取TXT文件...');
       const file = txtFile.files[0];
       const textContent = await readTextFile(file);
       addDebugInfo(`文件读取完成，大小: ${textContent.length} 字符`);
       
-      progressBar.style.width = '20%';
+      // 显示前200字符用于调试
+      addDebugInfo(`文件开头预览: ${textContent.substring(0, 200)}...`);
 
       // 2. 读取封面图
+      progressBar.style.width = '20%';
       let coverDataUrl = null;
       if (coverImg.files[0]) {
         addDebugInfo('读取封面图片...');
         coverDataUrl = await readFileAsDataUrl(coverImg.files[0]);
       }
-      progressBar.style.width = '30%';
 
-      // 3. 拆分章节
-      addDebugInfo('拆分章节...');
-      const chapters = splitChapters(textContent);
+      // 3. 智能拆分章节（完整保留章节名）
+      progressBar.style.width = '40%';
+      addDebugInfo('开始拆分章节...');
+      
+      // 尝试多种方法拆分章节
+      let chapters = splitChaptersByExactMatch(textContent);
+
+      // 如果第一种方法没找到章节，尝试第二种方法
+      if (chapters.length <= 1 && chapters[0].title === '全文') {
+        addDebugInfo('第一种方法未找到章节，尝试第二种方法...');
+        const positions = findChaptersByLines(textContent);
+        
+        if (positions.length > 0) {
+          chapters = [];
+          
+          // 处理第一个章节之前的内容
+          const firstChapter = positions[0];
+          if (firstChapter.originalIndex > 0) {
+            const introContent = textContent.substring(0, firstChapter.originalIndex).trim();
+            if (introContent && introContent.length > 50) {
+              chapters.push({
+                title: extractIntroTitle(introContent),
+                content: introContent,
+                order: 0
+              });
+              addDebugInfo(`添加简介章节: "${extractIntroTitle(introContent)}"`);
+            }
+          }
+          
+          // 分割章节
+          for (let i = 0; i < positions.length; i++) {
+            const current = positions[i];
+            const next = positions[i + 1];
+            
+            const contentStart = current.originalIndex + current.title.length;
+            const contentEnd = next ? next.originalIndex : textContent.length;
+            
+            let chapterContent = textContent.substring(contentStart, contentEnd).trim();
+            chapterContent = cleanChapterStart(chapterContent);
+            
+            if (chapterContent) {
+              chapters.push({
+                title: current.title,
+                content: chapterContent,
+                order: i + 1
+              });
+            }
+          }
+        }
+      }
+
       addDebugInfo(`找到 ${chapters.length} 个章节`);
       
-      if (chapters.length === 0) {
-        // 如果没有章节，创建单章
-        chapters.push({
-          title: '全文',
-          content: textContent
-        });
-        addDebugInfo('未检测到章节，创建单章');
-      }
-      
-      // 显示前几个章节标题
-      if (chapters.length > 0) {
-        chapters.slice(0, 3).forEach((chap, i) => {
-          addDebugInfo(`章节${i+1}: ${chap.title.substring(0, 50)}...`);
-        });
-      }
-      
-      progressBar.style.width = '60%';
+      // 显示前5个章节标题
+      chapters.slice(0, 5).forEach((chap, i) => {
+        addDebugInfo(`章节${i+1}: "${chap.title}" (${chap.content.length} 字符)`);
+      });
 
       // 4. 生成EPUB
-      addDebugInfo('生成EPUB文件...');
+      progressBar.style.width = '70%';
+      addDebugInfo('开始生成EPUB文件...');
       const epubBlob = await createEpub({
         title: bookTitle.value.trim(),
         author: bookAuthor.value.trim(),
         cover: coverDataUrl,
         chapters: chapters
       });
-      progressBar.style.width = '90%';
 
       // 5. 创建下载链接
+      progressBar.style.width = '90%';
       const url = URL.createObjectURL(epubBlob);
       downloadLink.href = url;
       downloadLink.download = `${bookTitle.value.trim()}_${bookAuthor.value.trim()}.epub`;
@@ -129,12 +170,10 @@ document.addEventListener('DOMContentLoaded', function() {
       // 恢复状态
       generateBtn.disabled = false;
       generateBtn.textContent = '生成EPUB';
+      
       addDebugInfo(`✅ 生成成功！共 ${chapters.length} 个章节，文件大小: ${formatFileSize(epubBlob.size)}`);
       
-      // 显示成功消息
-      setTimeout(() => {
-        alert(`✅ 生成成功！\n共拆分 ${chapters.length} 个章节\n文件大小: ${formatFileSize(epubBlob.size)}\n请点击下载按钮保存文件。`);
-      }, 300);
+      alert(`✅ 生成成功！\n共拆分 ${chapters.length} 个章节\n文件大小: ${formatFileSize(epubBlob.size)}\n请点击下载按钮保存文件。`);
 
     } catch (error) {
       console.error('生成失败:', error);
@@ -146,54 +185,62 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
+  // ---------------------- 调试函数 ----------------------
+  
+  /**
+   * 添加调试信息
+   */
+  function addDebugInfo(message) {
+    if (debugMode && debugInfo) {
+      const time = new Date().toLocaleTimeString();
+      debugInfo.innerHTML += `[${time}] ${message}<br>`;
+      debugInfo.scrollTop = debugInfo.scrollHeight;
+    }
+    console.log(message);
+  }
+  
+  /**
+   * 清空调试信息
+   */
+  function clearDebugInfo() {
+    if (debugInfo) {
+      debugInfo.innerHTML = '';
+    }
+  }
+
   // ---------------------- 工具函数 ----------------------
   
   /**
-   * 读取文本文件（处理编码问题）
+   * 读取文本文件（智能编码检测）
    */
   function readTextFile(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       
-      // 先尝试UTF-8
       reader.onload = function(e) {
-        const text = e.target.result;
+        let text = e.target.result;
         
-        // 检查是否有常见乱码字符
+        // 检查是否有乱码
         if (hasGarbledText(text)) {
-          addDebugInfo('检测到乱码，尝试GB18030编码...');
-          
-          // 重新以ArrayBuffer方式读取，尝试不同编码
+          addDebugInfo('检测到可能的乱码，尝试GBK编码...');
           const reader2 = new FileReader();
           reader2.onload = function(e2) {
             const buffer = e2.target.result;
-            // 尝试常见中文编码
-            const encodings = ['gb18030', 'gbk', 'gb2312', 'big5', 'utf-8'];
-            
-            for (const encoding of encodings) {
-              try {
-                const decoder = new TextDecoder(encoding);
-                const decoded = decoder.decode(new Uint8Array(buffer));
-                
-                // 检查解码结果是否合理
-                if (!hasGarbledText(decoded)) {
-                  addDebugInfo(`使用 ${encoding} 编码成功`);
-                  resolve(decoded);
-                  return;
-                }
-              } catch (e) {
-                // 尝试下一个编码
-                continue;
+            try {
+              // 尝试GBK编码
+              const decoder = new TextDecoder('gbk');
+              const decoded = decoder.decode(new Uint8Array(buffer));
+              if (!hasGarbledText(decoded)) {
+                addDebugInfo('GBK编码解码成功');
+                resolve(decoded);
+                return;
               }
+            } catch (err) {
+              addDebugInfo('GBK解码失败，使用原始文本');
             }
-            
-            // 所有编码都失败，返回原始文本
-            addDebugInfo('无法确定编码，使用原始文本');
-            resolve(text);
+            resolve(text); // 使用原始文本
           };
-          
-          reader2.onerror = () => reject(new Error('文件读取失败'));
-          reader2.readAsArrayBuffer(file.slice(0, Math.min(file.size, 1024 * 1024))); // 只读前1MB尝试解码
+          reader2.readAsArrayBuffer(file.slice(0, Math.min(file.size, 1024 * 1024)));
         } else {
           resolve(text);
         }
@@ -210,21 +257,14 @@ document.addEventListener('DOMContentLoaded', function() {
   function hasGarbledText(text) {
     if (!text || text.length < 100) return false;
     
-    // 检查样本
     const sample = text.substring(0, Math.min(text.length, 1000));
+    // 检查是否有大量无法显示的字符
+    const garbledPattern = /�{3,}|[\uFFFD]{3,}/g;
+    const matches = sample.match(garbledPattern);
     
-    // 常见乱码模式
-    const garbledPatterns = [
-      /�{3,}/g, // 连续多个问号
-      /[\uFFFD]/g, // Unicode替换字符
-      /[^\u0000-\u007F\u4E00-\u9FFF，。！？《》【】、；：'"（）\s\n\r]/g // 非中英文常见字符
-    ];
-    
-    for (const pattern of garbledPatterns) {
-      const matches = sample.match(pattern);
-      if (matches && matches.length > sample.length * 0.1) { // 超过10%的字符是乱码
-        return true;
-      }
+    if (matches && matches.length > 0) {
+      addDebugInfo(`检测到乱码字符: ${matches.length} 处`);
+      return true;
     }
     
     return false;
@@ -243,107 +283,244 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   /**
-   * 拆分章节（智能检测）
+   * 备用的章节拆分方法 - 使用更精确的匹配
    */
-  function splitChapters(text) {
+  function splitChaptersByExactMatch(text) {
     const chapters = [];
     
-    // 获取用户设置的前缀后缀
-    const prefix1 = chapterPrefix1.value.trim();
-    const suffix1 = chapterSuffix1.value.trim();
-    const prefix2 = chapterPrefix2.value.trim();
-    const suffix2 = chapterSuffix2.value.trim();
+    // 匹配章节标题的正则表达式（更精确）
+    const chapterRegex = /(\n|^)(第[一二三四五六七八九十百千万零〇壹贰叁肆伍陆柒捌玖拾佰仟\d]+章[^\n]*)/g;
     
-    // 构建正则表达式
-    const patterns = [];
+    const matches = [];
+    let match;
     
-    // 用户自定义模式
-    if (prefix1) {
-      patterns.push(new RegExp(`${escapeRegExp(prefix1)}[一二三四五六七八九十百千万零〇壹贰叁肆伍陆柒捌玖拾佰仟0-9]+${escapeRegExp(suffix1)}`, 'g'));
-      patterns.push(new RegExp(`${escapeRegExp(prefix1)}\\d+${escapeRegExp(suffix1)}`, 'g'));
-    }
-    
-    if (prefix2) {
-      patterns.push(new RegExp(`${escapeRegExp(prefix2)}[一二三四五六七八九十百千万零〇壹贰叁肆伍陆柒捌玖拾佰仟0-9]+${escapeRegExp(suffix2)}`, 'g'));
-      patterns.push(new RegExp(`${escapeRegExp(prefix2)}\\d+${escapeRegExp(suffix2)}`, 'g'));
-    }
-    
-    // 常见章节模式（备用）
-    const commonPatterns = [
-      /第[一二三四五六七八九十百千万零〇壹贰叁肆伍陆柒捌玖拾佰仟]+章/g,
-      /第\d+章/g,
-      /第[0-9]+章/g,
-      /第\s*[一二三四五六七八九十]+\s*章/g,
-      /第\s*\d+\s*章/g,
-      /^第.+章$/gm,
-      /^[一二三四五六七八九十]+、/gm,
-      /^\d+、/gm,
-      /^CHAPTER\s+\d+/gmi,
-      /^Section\s+\d+/gmi
-    ];
-    
-    // 合并所有模式
-    const allPatterns = [...patterns, ...commonPatterns];
-    
-    // 查找所有匹配位置
-    const chapterPositions = [];
-    
-    for (const pattern of allPatterns) {
-      let match;
-      pattern.lastIndex = 0; // 重置正则索引
+    while ((match = chapterRegex.exec(text)) !== null) {
+      const title = match[2].trim();
+      const index = match.index + match[1].length; // 排除匹配的换行符
       
-      while ((match = pattern.exec(text)) !== null) {
-        // 避免重复添加
-        const isDuplicate = chapterPositions.some(pos => 
-          Math.abs(pos.index - match.index) < 10
-        );
+      // 检查是否是有效的章节标题（不是正文中的文字）
+      if (isValidChapterTitle(text, index, title)) {
+        matches.push({
+          index: index,
+          title: title,
+          length: title.length
+        });
+      }
+    }
+    
+    // 如果没有匹配到章节，尝试其他格式
+    if (matches.length === 0) {
+      addDebugInfo('未找到标准章节格式，尝试其他格式...');
+      // 尝试匹配其他格式
+      const altRegex = /(\n|^)((?:前言|简介|序言|楔子|引子|后记|尾声|番外[^\n]*|[一二三四五六七八九十百千万\d]+、[^\n]*))/g;
+      
+      while ((match = altRegex.exec(text)) !== null) {
+        const title = match[2].trim();
+        const index = match.index + match[1].length;
         
-        if (!isDuplicate) {
-          chapterPositions.push({
-            index: match.index,
-            title: match[0].trim(),
-            length: match[0].length
+        if (isValidChapterTitle(text, index, title)) {
+          matches.push({
+            index: index,
+            title: title,
+            length: title.length
           });
-        }
-        
-        // 避免无限循环
-        if (pattern.lastIndex === match.index) {
-          pattern.lastIndex++;
         }
       }
     }
     
-    // 按位置排序
-    chapterPositions.sort((a, b) => a.index - b.index);
-    
-    addDebugInfo(`找到 ${chapterPositions.length} 个章节位置`);
-    
-    // 如果找到章节，分割内容
-    if (chapterPositions.length > 0) {
-      for (let i = 0; i < chapterPositions.length; i++) {
-        const current = chapterPositions[i];
-        const next = chapterPositions[i + 1];
+    // 处理匹配到的章节
+    if (matches.length > 0) {
+      addDebugInfo(`通过正则匹配找到 ${matches.length} 个章节`);
+      // 排序
+      matches.sort((a, b) => a.index - b.index);
+      
+      // 处理第一个章节之前的内容
+      const firstMatch = matches[0];
+      if (firstMatch.index > 0) {
+        const introContent = text.substring(0, firstMatch.index).trim();
+        if (introContent && introContent.length > 50) {
+          chapters.push({
+            title: extractIntroTitle(introContent),
+            content: introContent,
+            order: 0
+          });
+        }
+      }
+      
+      // 分割章节内容
+      for (let i = 0; i < matches.length; i++) {
+        const current = matches[i];
+        const next = matches[i + 1];
         
-        const start = current.index + current.length;
-        const end = next ? next.index : text.length;
+        const contentStart = current.index + current.length;
+        const contentEnd = next ? next.index : text.length;
         
-        let chapterContent = text.substring(start, end).trim();
+        let chapterContent = text.substring(contentStart, contentEnd).trim();
         
-        // 清理开头多余的空行
-        chapterContent = chapterContent.replace(/^[\r\n\s]+/, '');
+        // 清理章节开头可能的多余换行
+        chapterContent = cleanChapterStart(chapterContent);
         
         if (chapterContent) {
           chapters.push({
             title: current.title,
-            content: chapterContent
+            content: chapterContent,
+            order: i + 1
           });
         }
       }
+    } else {
+      // 没有找到章节，整个文件作为一章
+      addDebugInfo('未找到任何章节，整个文件作为一章');
+      chapters.push({
+        title: '全文',
+        content: text,
+        order: 0
+      });
     }
     
     return chapters;
   }
-  
+
+  /**
+   * 增强的章节识别方法 - 尝试逐行分析
+   */
+  function findChaptersByLines(text) {
+    const lines = text.split('\n');
+    const chapterPositions = [];
+    let currentIndex = 0;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue; // 跳过空行
+      
+      // 找到这一行在原文中的位置
+      const lineIndex = text.indexOf(line, currentIndex);
+      if (lineIndex === -1) continue;
+      
+      currentIndex = lineIndex;
+      
+      // 检查是否是章节标题行
+      const isChapterLine = isChapterTitle(line);
+      
+      if (isChapterLine) {
+        chapterPositions.push({
+          originalIndex: currentIndex,
+          title: line,
+          length: line.length,
+          type: getChapterType(line)
+        });
+      }
+      
+      currentIndex += line.length;
+    }
+    
+    return chapterPositions;
+  }
+
+  /**
+   * 判断一行是否是章节标题
+   */
+  function isChapterTitle(line) {
+    // 常见章节标题模式
+    const chapterPatterns = [
+      /^第[一二三四五六七八九十百千万零〇壹贰叁肆伍陆柒捌玖拾佰仟]+章/,
+      /^第\d+章/,
+      /^第[0-9]+章/,
+      /^番外[一二三四五六七八九十百千万零〇\d]/,
+      /^前言/,
+      /^简介/,
+      /^序言/,
+      /^楔子/,
+      /^引子/,
+      /^后记/,
+      /^尾声/,
+      /^[一二三四五六七八九十百千万]+、/,
+      /^\d+、/,
+      /^第[一二三四五六七八九十百千万零〇\d]+[章节]/,
+    ];
+    
+    // 检查是否是空行或过长的行（可能是正文）
+    if (!line || line.length > 100) return false;
+    
+    // 检查是否有章节特征
+    for (const pattern of chapterPatterns) {
+      if (pattern.test(line)) {
+        return true;
+      }
+    }
+    
+    // 额外的检查：如果是单独一行且包含特定关键词
+    const keywords = ['章', '番外', '前言', '简介', '序', '楔子', '引子'];
+    const hasKeyword = keywords.some(keyword => line.includes(keyword));
+    const isShortLine = line.length < 50;
+    
+    return hasKeyword && isShortLine;
+  }
+
+  /**
+   * 获取章节类型
+   */
+  function getChapterType(title) {
+    if (title.includes('前言') || title.includes('简介') || 
+        title.includes('序言') || title.includes('楔子') || 
+        title.includes('引子') || title.includes('后记') || 
+        title.includes('尾声')) {
+      return 'intro';
+    }
+    if (title.includes('番外')) {
+      return 'extra';
+    }
+    return 'main';
+  }
+
+  /**
+   * 从内容中提取简介标题
+   */
+  function extractIntroTitle(text) {
+    const lines = text.split('\n');
+    
+    // 查找第一行非空行
+    for (let line of lines) {
+      line = line.trim();
+      if (line) {
+        // 检查是否是常见的简介标题
+        const introTitles = ['简介', '前言', '序言', '楔子', '引子', '作品简介', '内容简介'];
+        for (const title of introTitles) {
+          if (line.includes(title) && line.length < 100) {
+            return line;
+          }
+        }
+        
+        // 如果不是常见标题，返回第一行（截断到50字符）
+        return line.length > 50 ? line.substring(0, 50) + '...' : line;
+      }
+    }
+    
+    return '简介';
+  }
+
+  /**
+   * 检查是否是有效的章节标题
+   */
+  function isValidChapterTitle(fullText, index, title) {
+    // 检查标题长度是否合理
+    if (title.length > 100 || title.length < 2) return false;
+    
+    // 检查标题后是否主要是文本内容（而不是另一个标题）
+    const afterTitle = fullText.substring(index + title.length, index + title.length + 100);
+    const textRatio = (afterTitle.match(/[\u4e00-\u9fff]/g) || []).length / Math.max(afterTitle.length, 1);
+    
+    return textRatio > 0.3; // 至少30%是中文字符
+  }
+
+  /**
+   * 清理章节开头
+   */
+  function cleanChapterStart(text) {
+    // 移除开头多余的换行和空白
+    return text.replace(/^[\r\n\s]+/, '');
+  }
+
   /**
    * 正则转义
    */
@@ -418,11 +595,13 @@ document.addEventListener('DOMContentLoaded', function() {
   </navMap>
 </ncx>`;
         
-        // 3. 内容文件（XHTML）
+        // 3. 内容文件（XHTML） - 优化章节显示
         const chapterHtml = chapters.map((chapter, index) => `
   <div id="chapter-${index + 1}" class="chapter">
     <h2>${escapeHtml(chapter.title)}</h2>
-    <p>${formatTextForHtml(chapter.content)}</p>
+    <div class="content">
+      ${formatTextForHtml(chapter.content)}
+    </div>
   </div>`).join('');
         
         const xhtmlContent = `<?xml version="1.0" encoding="UTF-8"?>
@@ -436,43 +615,63 @@ document.addEventListener('DOMContentLoaded', function() {
       font-family: "SimSun", "宋体", serif; 
       margin: 5%; 
       line-height: 1.8; 
-      font-size: 1.1em;
+      font-size: 1em;
+      text-align: justify;
     }
     h1 { 
       text-align: center; 
-      margin-bottom: 1em; 
-      font-size: 2em;
+      margin: 2em 0 1em 0; 
+      font-size: 1.8em;
+      font-weight: bold;
+      border-bottom: 2px solid #333;
+      padding-bottom: 0.5em;
     }
     h2 { 
       text-align: center; 
-      margin: 1.5em 0 1em 0; 
-      font-size: 1.5em;
+      margin: 2em 0 1em 0; 
+      font-size: 1.4em;
+      font-weight: bold;
+      color: #333;
       border-bottom: 1px solid #ddd;
       padding-bottom: 0.3em;
     }
-    p { 
+    .content {
+      margin: 1em 0;
+    }
+    .content p {
       text-indent: 2em; 
-      margin: 0.5em 0;
+      margin: 0.8em 0;
+      line-height: 1.8;
     }
     .cover { 
       text-align: center; 
-      margin: 2em 0; 
+      margin: 3em 0; 
     }
     .cover img {
-      max-width: 80%;
+      max-width: 60%;
       height: auto;
       margin: 0 auto;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
     .chapter {
       page-break-before: always;
+      margin-top: 2em;
+    }
+    .chapter:first-child {
+      page-break-before: auto;
+    }
+    /* 简介章节特殊样式 */
+    .chapter.intro h2 {
+      color: #666;
+      font-style: italic;
     }
   </style>
 </head>
 <body>
-  <div id="cover">
+  <div id="cover" class="cover">
     <h1>${escapeHtml(title)}</h1>
     <h2>${escapeHtml(author)}</h2>
-    ${cover ? '<div class="cover"><img src="cover.jpg" alt="封面" /></div>' : ''}
+    ${cover ? '<img src="cover.jpg" alt="封面" />' : ''}
   </div>
   ${chapterHtml}
 </body>
@@ -563,6 +762,7 @@ document.addEventListener('DOMContentLoaded', function() {
    * 转义XML特殊字符
    */
   function escapeXml(text) {
+    if (!text) return '';
     return text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -575,6 +775,7 @@ document.addEventListener('DOMContentLoaded', function() {
    * 转义HTML特殊字符
    */
   function escapeHtml(text) {
+    if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
@@ -586,15 +787,35 @@ document.addEventListener('DOMContentLoaded', function() {
   function formatTextForHtml(text) {
     if (!text) return '';
     
-    return text
+    // 先转义特殊字符
+    let html = text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/\r\n/g, '\n') // 统一换行符
-      .replace(/\r/g, '\n')
-      .replace(/\n{3,}/g, '</p><p>') // 多个空行分段
-      .replace(/\n/g, '<br/>')       // 单个换行
-      .replace(/^<br\/>/, '')        // 去除开头的换行
-      .replace(/<br\/>$/, '');      // 去除结尾的换行
+      .replace(/\r/g, '\n');
+    
+    // 处理段落：两个以上换行符作为段落分隔
+    html = html.replace(/\n{3,}/g, '</p><p>');
+    
+    // 处理单个换行：如果前面不是段落结束，则作为<br>
+    html = html.replace(/\n/g, (match, offset, str) => {
+      // 检查前面是否有段落结束标签
+      const before = str.substring(0, offset);
+      if (before.endsWith('</p>') || before.endsWith('<br/>')) {
+        return '';
+      }
+      return '<br/>';
+    });
+    
+    // 包裹在段落标签中
+    if (!html.startsWith('<p>')) {
+      html = '<p>' + html;
+    }
+    if (!html.endsWith('</p>')) {
+      html = html + '</p>';
+    }
+    
+    return html;
   }
 });
