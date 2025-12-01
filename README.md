@@ -2,6 +2,9 @@
 
 一个在浏览器中运行的TXT转EPUB转换工具，无需服务器，完全离线使用。
 
+# txt2epub
+TXT 转 EPUB 转换工具
+
 ## 功能特性
 
 - 📖 将TXT文本转换为标准EPUB格式
@@ -37,4 +40,8 @@
 
 1. 克隆项目：
 ```bash
+<<<<<<< HEAD
 git clone https://gitee.com/yyyuss/txt2epub.git
+=======
+git clone https://gitee.com/yyyuss/txt2epub.git
+>>>>>>> fe1965465c8cedf408eec575fc39eaa60f92b522
