@@ -1,37 +1,40 @@
-# txt2epub
+# TXT转EPUB工具
 
-#### 介绍
-TXT 转 EPUB 转换工具
+一个在浏览器中运行的TXT转EPUB转换工具，无需服务器，完全离线使用。
 
-#### 软件架构
-软件架构说明
+## 功能特性
 
+- 📖 将TXT文本转换为标准EPUB格式
+- 🔤 自动识别中文编码（GBK/UTF-8等）
+- 📑 智能章节拆分（支持多种章节格式）
+- 🎨 可添加书籍封面图片
+- 📱 兼容各种EPUB阅读器（包括苹果图书）
+- 🚀 完全在浏览器中运行，无需上传到服务器
 
-#### 安装教程
+## 使用方法
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+1. 填写书籍标题和作者
+2. 上传TXT文件
+3. （可选）上传封面图片
+4. 调整章节识别设置（默认识别"第X章"）
+5. 点击"生成EPUB"按钮
+6. 下载生成的EPUB文件
 
-#### 使用说明
+## 章节识别
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+支持以下章节格式：
+- 第X章（中文数字）
+- 第1章（阿拉伯数字）
+- 番外X
+- CHAPTER X
+- 其他自定义格式
 
-#### 参与贡献
+## 在线演示
 
-1.  Fork 本仓库
-2.  新建 Feat_xxx 分支
-3.  提交代码
-4.  新建 Pull Request
+[点击这里访问在线版本](https://yyyuss.gitee.io/txt2epub/)
 
+## 本地运行
 
-#### 特技
-
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+1. 克隆项目：
+```bash
+git clone https://gitee.com/yyyuss/txt2epub.git
